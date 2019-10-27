@@ -36,7 +36,33 @@ class MatrixFactorization(torch.nn.Module):
 
 
 
-def train_model(model, train, test, loss_fn, optimizer, long_type, float_type, experiment):
+def train_model(isCuda, experiment):
+
+  train = np.loadtxt(fname=HUNDRED_K_TRAIN, dtype=np.dtype("int"), delimiter=HUNDRED_K_DELIM)
+  test = np.loadtxt(fname=HUNDRED_K_TEST, dtype=np.dtype("int"), delimiter=HUNDRED_K_DELIM)
+  
+  train[:, 0] -= 1
+  train[:, 1] -= 1
+  np.random.shuffle(train)
+
+  test[:, 0] -= 1
+  test[:, 1] -= 1
+  np.random.shuffle(test)
+
+  num_users = HUNDRED_K_USERS
+  num_movies = HUNDRED_K_MOVIES
+
+  if isCuda:
+    model = MatrixFactorization(num_users, num_movies, NUM_FACTORS).cuda()
+    long_type = torch.cuda.LongTensor
+    float_type = torch.cuda.FloatTensor
+  else:
+    model = MatrixFactorization(num_users, num_movies, NUM_FACTORS)
+    long_type = torch.LongTensor
+    float_type = torch.FloatTensor
+
+  loss_fn = torch.nn.MSELoss()
+  optimizer = torch.optim.SGD(model.parameters(), lr=LEARNING_RATE)
   
   def evaluate_model(data):
     users = torch.Tensor(data[:, 0]).type(long_type)
@@ -60,6 +86,7 @@ def train_model(model, train, test, loss_fn, optimizer, long_type, float_type, e
       loss = loss_fn(predictions, ratings)
       loss.backward()
       optimizer.step()
+      optimizer.zero_grad()
 
       if n % 1000 == 0:
         print(n)
@@ -84,42 +111,12 @@ def train_model(model, train, test, loss_fn, optimizer, long_type, float_type, e
 
 
 
-def run_experiment(isCuda, experiment):
-  train = np.loadtxt(fname=HUNDRED_K_TRAIN, dtype=np.dtype("int"), delimiter=HUNDRED_K_DELIM)
-  test = np.loadtxt(fname=HUNDRED_K_TEST, dtype=np.dtype("int"), delimiter=HUNDRED_K_DELIM)
-  
-  train[:, 0] -= 1
-  train[:, 1] -= 1
-  np.random.shuffle(train)
-
-  test[:, 0] -= 1
-  test[:, 1] -= 1
-  np.random.shuffle(test)
-
-  num_users = HUNDRED_K_USERS
-  num_movies = HUNDRED_K_MOVIES
-  
-  if isCuda:
-    model = MatrixFactorization(num_users, num_movies, NUM_FACTORS).cuda()
-    long_type = torch.cuda.LongTensor
-    float_type = torch.cuda.FloatTensor
-  else:
-    model = MatrixFactorization(num_users, num_movies, NUM_FACTORS)
-    long_type = torch.LongTensor
-    float_type = torch.FloatTensor
-
-  loss_fn = torch.nn.MSELoss()
-  optimizer = torch.optim.SGD(model.parameters(), lr=LEARNING_RATE)
-
-  train_model(model, train, test, loss_fn, optimizer, long_type, float_type, experiment)
-
-
 
 
 if __name__ == '__main__':
   args = sys.argv
   if len(args) >= 3:
-    run_experiment((args[1] == "y"), args[2])
+    train_model((args[1] == "y"), args[2])
 
      
 
