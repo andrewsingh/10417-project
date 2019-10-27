@@ -1,6 +1,7 @@
 import sys
 import numpy as np
 import torch
+import time
 
 
 # Hyperparameters
@@ -49,6 +50,7 @@ def train_model(model, train, test, loss_fn, optimizer, long_type, float_type, e
   test_losses = np.zeros(EPOCHS)
 
   for i in range(EPOCHS):
+    start = time.time()
     n = 0
     for [user, movie, rating, _] in train:
       users = torch.Tensor([user]).type(long_type)
@@ -61,6 +63,9 @@ def train_model(model, train, test, loss_fn, optimizer, long_type, float_type, e
 
       if n % 1000 == 0:
         print(n)
+        end = time.time()
+        print("Time: {}".format(end - start))
+        start = end
         print("Prediction: {}".format(predictions[0]))
         print("Rating: {}".format(ratings[0]))
         print("Diff: {}".format(abs(predictions[0] - ratings[0])))
