@@ -31,7 +31,7 @@ class MatrixFactorization(torch.nn.Module):
 
 
   def forward(self, users, movies):
-    return cos(self.user_factors(users), self.movie_factors(movies))
+    return (cos(self.user_factors(users), self.movie_factors(movies)) * 2) + 3
 
 
 
@@ -59,8 +59,11 @@ def train_model(model, train, test, loss_fn, optimizer, long_type, float_type, e
       loss.backward()
       optimizer.step()
 
-      if n % 100 == 0:
+      if n % 1000 == 0:
         print(n)
+        print("Prediction: {}".format(predictions[0]))
+        print("Rating: {}".format(ratings[0]))
+        print("Diff: {}".format(abs(predictions[0] - ratings[0])))
       n += 1
       
     train_loss = evaluate_model(train)
@@ -76,8 +79,7 @@ def train_model(model, train, test, loss_fn, optimizer, long_type, float_type, e
 
 
 
-
-def run_experiment(experiment, isCuda):
+def run_experiment(isCuda, experiment):
   train = np.loadtxt(fname=HUNDRED_K_TRAIN, dtype=np.dtype("int"), delimiter=HUNDRED_K_DELIM)
   test = np.loadtxt(fname=HUNDRED_K_TEST, dtype=np.dtype("int"), delimiter=HUNDRED_K_DELIM)
   
@@ -91,7 +93,6 @@ def run_experiment(experiment, isCuda):
 
   num_users = HUNDRED_K_USERS
   num_movies = HUNDRED_K_MOVIES
-  num_ratings = data.shape[0]
   
   if isCuda:
     model = MatrixFactorization(num_users, num_movies, NUM_FACTORS).cuda()
@@ -113,9 +114,7 @@ def run_experiment(experiment, isCuda):
 if __name__ == '__main__':
   args = sys.argv
   if len(args) >= 3:
-    experiment = args[1]
-    isCuda = (args[2] == "y")
-    run_experiment(experiment, isCuda)
+    run_experiment((args[1] == "y"), args[2])
 
      
 
