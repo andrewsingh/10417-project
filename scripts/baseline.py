@@ -1,114 +1,119 @@
+import sys
 import numpy as np
 import torch
 
 
+# Hyperparameters
 EPOCHS = 100
 BATCH_SIZE = 16
+LEARNING_RATE = 1e-6
 NUM_FACTORS = 20
+
+# Data constants
 HUNDRED_K_USERS = 943
 HUNDRED_K_MOVIES = 1682
 ONE_M_USERS = 6040
 ONE_M_MOVIES = 3952
 HUNDRED_K_DELIM = "\t"
 ONE_M_DELIM = "::"
-HUNDRED_K_FILE = "ml-100k/u.data"
-ONE_M_FILE = "ml-1m/ratings.dat"
+HUNDRED_K_FILE = "data/ml-100k/u.data"
+ONE_M_FILE = "data/ml-1m/ratings.dat"
 
-
-data = np.loadtxt(fname=HUNDRED_K_FILE, dtype=np.dtype("int"), delimiter=HUNDRED_K_DELIM)
-data[:, 0] -= 1
-data[:, 1] -= 1
-np.random.shuffle(data)
-
-num_users = HUNDRED_K_USERS
-num_movies = HUNDRED_K_MOVIES
-num_ratings = data.shape[0]
-num_batches = int(num_ratings / BATCH_SIZE)
 cos = torch.nn.CosineSimilarity()
+
 
 class MatrixFactorization(torch.nn.Module):
 
-	def __init__(self, num_users, num_movies, num_factors):
-		super().__init__()
-		self.user_factors = torch.nn.Embedding(num_users, NUM_FACTORS, sparse=True)
-		self.movie_factors = torch.nn.Embedding(num_movies, NUM_FACTORS, sparse=True)
+  def __init__(self, num_users, num_movies, num_factors):
+    super().__init__()
+    self.user_factors = torch.nn.Embedding(num_users, NUM_FACTORS, sparse=True)
+    self.movie_factors = torch.nn.Embedding(num_movies, NUM_FACTORS, sparse=True)
 
 
-	def forward(self, users, movies):
-		return cos(self.user_factors(users), self.movie_factors(movies))
-
-
-
-model = MatrixFactorization(num_users, num_movies, NUM_FACTORS)
-
-loss_fn = torch.nn.MSELoss()
-optimizer = torch.optim.SGD(model.parameters(), lr=1e-6)
+  def forward(self, users, movies):
+    return cos(self.user_factors(users), self.movie_factors(movies))
 
 
 
-def train_model(epochs):
-	for i in range(epochs):
-		n = 0
-		for [user, movie, rating, _] in data:
-			users = torch.LongTensor([user])
-			movies = torch.LongTensor([movie])
-			ratings = torch.FloatTensor([rating])
-			predictions = model(users, movies)
-			loss = loss_fn(predictions, ratings)
-			loss.backward()
-			optimizer.step()
-			if (n % 100 == 0):
-				print("{}".format(n))
-			n += 1
+def train_model(model, train, test, loss_fn, optimizer, long_type, float_type, experiment):
+  
+  def evaluate_model(data):
+    users = torch.Tensor(data[:, 0]).type(long_type)
+    movies = torch.Tensor(data[:, 1]).type(long_type)
+    ratings = torch.Tensor(data[:, 2]).type(float_type)
+    predictions = model(users, movies)
+    return torch.sqrt(loss_fn(predictions, ratings))
+
+
+  train_losses = np.zeros(EPOCHS)
+  test_losses = np.zeros(EPOCHS)
+
+  for i in range(EPOCHS):
+    n = 0
+    for [user, movie, rating, _] in train:
+      users = torch.Tensor([user]).type(long_type)
+      movies = torch.Tensor([movie]).type(long_type)
+      ratings = torch.Tensor([rating]).type(float_type)
+      predictions = model(users, movies)
+      loss = loss_fn(predictions, ratings)
+      loss.backward()
+      optimizer.step()
+
+      if n % 100 == 0:
+        print(n)
+      n += 1
+      
+    train_loss = evaluate_model(train)
+    test_loss = evaluate_model(test)
+
+    train_losses[i] = train_loss
+    test_losses[i] = test_loss
+
+    print("\n============== EPOCH {} ==============\nTrain loss = {}\nTest loss = {}\n"\
+      .format(i + 1, train_loss, test_loss))
+    
+    np.save("results/{}".format(experiment), [train_losses, test_losses])
 
 
 
-def evaluate_model():
-	users = torch.LongTensor(data[:, 0])
-	movies = torch.LongTensor(data[:, 1])
-	ratings = torch.FloatTensor(data[:, 2])
-	print(ratings)
-	predictions = model(users, movies)
-	return torch.sqrt(loss_fn(predictions, ratings))
+
+def run_experiment(experiment, isCuda):
+  data = np.loadtxt(fname=HUNDRED_K_FILE, dtype=np.dtype("int"), delimiter=HUNDRED_K_DELIM)
+  data[:, 0] -= 1
+  data[:, 1] -= 1
+  np.random.shuffle(data)
+
+  num_users = HUNDRED_K_USERS
+  num_movies = HUNDRED_K_MOVIES
+  num_ratings = data.shape[0]
+  num_batches = int(num_ratings / BATCH_SIZE)
+  
+  
+  if isCuda:
+    model = MatrixFactorization(num_users, num_movies, NUM_FACTORS).cuda()
+    long_type = torch.cuda.LongTensor
+    float_type = torch.cuda.FloatTensor
+  else:
+    model = MatrixFactorization(num_users, num_movies, NUM_FACTORS)
+    long_type = torch.LongTensor
+    float_type = torch.FloatTensor
+
+  loss_fn = torch.nn.MSELoss()
+  optimizer = torch.optim.SGD(model.parameters(), lr=LEARNING_RATE)
+
+  train_model(model, data, data, loss_fn, optimizer, long_type, float_type, experiment)
 
 
-# def batch_data(ratings):
-# 	ratings = np.copy(ratings)
-# 	batches = []
-# 	while ratings.shape[0] > 0:
-# 		mask = np.full(ratings.shape[0], True, dtype=bool)
-# 		users_added = np.full(num_users, False, dtype=bool)
-# 		movies_added = np.full(num_movies, False, dtype=bool)
-# 		batch = []
-# 		for i in range(ratings.shape[0]):
-# 			if not users_added[ratings[i][0]] and not movies_added[ratings[i][1]]:
-# 				batch.append(ratings[i])
-# 				users_added[ratings[i][0]] = True
-# 				movies_added[ratings[i][1]] = True
-# 				mask[i] = False
-# 		batches.append(np.asarray(batch))
-# 		ratings = ratings[mask]
-# 		print("Batch {} added, size: {}, ratings remaining: {}".format(len(batches), len(batch), ratings.shape[0]))
-# 	return np.asarray(batches)
 
 
+if __name__ == '__main__':
+  args = sys.argv
+  if len(args) >= 3:
+    experiment = args[1]
+    isCuda = (args[2] == "y")
+    run_experiment(experiment, isCuda)
 
-# def train_model_batches(epochs):
-# 	for i in range(epochs):
-# 		n = 0
-		
-# 		for batch in batches:
-# 			users = torch.LongTensor(batch[:, 0])
-# 			movies = torch.LongTensor(batch[:, 1])
-# 			ratings = torch.FloatTensor(batch[:, 2])
-# 			predictions = model(users, movies)
-# 			losses = loss_fn(predictions, ratings)
-# 			losses.backward()
-# 			optimizer.step()
-# 			if (n % 100 == 0):
-# 				print("{}: {}".format(i, loss))
-# 			n += 1
-
+     
 
 
 
