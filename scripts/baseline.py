@@ -5,7 +5,6 @@ import torch
 
 # Hyperparameters
 EPOCHS = 100
-BATCH_SIZE = 16
 LEARNING_RATE = 1e-6
 NUM_FACTORS = 20
 
@@ -16,8 +15,9 @@ ONE_M_USERS = 6040
 ONE_M_MOVIES = 3952
 HUNDRED_K_DELIM = "\t"
 ONE_M_DELIM = "::"
-HUNDRED_K_FILE = "data/ml-100k/u.data"
-ONE_M_FILE = "data/ml-1m/ratings.dat"
+HUNDRED_K_TRAIN = "data/ml-100k/ua.base"
+HUNDRED_K_TEST = "data/ml-100k/ua.test"
+
 
 cos = torch.nn.CosineSimilarity()
 
@@ -78,16 +78,20 @@ def train_model(model, train, test, loss_fn, optimizer, long_type, float_type, e
 
 
 def run_experiment(experiment, isCuda):
-  data = np.loadtxt(fname=HUNDRED_K_FILE, dtype=np.dtype("int"), delimiter=HUNDRED_K_DELIM)
-  data[:, 0] -= 1
-  data[:, 1] -= 1
-  np.random.shuffle(data)
+  train = np.loadtxt(fname=HUNDRED_K_TRAIN, dtype=np.dtype("int"), delimiter=HUNDRED_K_DELIM)
+  test = np.loadtxt(fname=HUNDRED_K_TEST, dtype=np.dtype("int"), delimiter=HUNDRED_K_DELIM)
+  
+  train[:, 0] -= 1
+  train[:, 1] -= 1
+  np.random.shuffle(train)
+
+  test[:, 0] -= 1
+  test[:, 1] -= 1
+  np.random.shuffle(test)
 
   num_users = HUNDRED_K_USERS
   num_movies = HUNDRED_K_MOVIES
   num_ratings = data.shape[0]
-  num_batches = int(num_ratings / BATCH_SIZE)
-  
   
   if isCuda:
     model = MatrixFactorization(num_users, num_movies, NUM_FACTORS).cuda()
@@ -101,7 +105,7 @@ def run_experiment(experiment, isCuda):
   loss_fn = torch.nn.MSELoss()
   optimizer = torch.optim.SGD(model.parameters(), lr=LEARNING_RATE)
 
-  train_model(model, data, data, loss_fn, optimizer, long_type, float_type, experiment)
+  train_model(model, train, test, loss_fn, optimizer, long_type, float_type, experiment)
 
 
 
