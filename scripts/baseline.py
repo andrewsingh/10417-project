@@ -5,9 +5,7 @@ import time
 
 
 # Hyperparameters
-EPOCHS = 100
-LEARNING_RATE = 1e-6
-NUM_FACTORS = 20
+EPOCHS = 500
 
 # Data constants
 HUNDRED_K_USERS = 943
@@ -19,7 +17,6 @@ ONE_M_DELIM = "::"
 HUNDRED_K_TRAIN = "data/ml-100k/ua.base"
 HUNDRED_K_TEST = "data/ml-100k/ua.test"
 
-
 cos = torch.nn.CosineSimilarity()
 
 
@@ -27,8 +24,8 @@ class MatrixFactorization(torch.nn.Module):
 
   def __init__(self, num_users, num_movies, num_factors):
     super().__init__()
-    self.user_factors = torch.nn.Embedding(num_users, NUM_FACTORS, sparse=True)
-    self.movie_factors = torch.nn.Embedding(num_movies, NUM_FACTORS, sparse=True)
+    self.user_factors = torch.nn.Embedding(num_users, num_factors, sparse=True)
+    self.movie_factors = torch.nn.Embedding(num_movies, num_factors, sparse=True)
 
 
   def forward(self, users, movies):
@@ -36,7 +33,7 @@ class MatrixFactorization(torch.nn.Module):
 
 
 
-def train_model(isCuda, experiment):
+def train_model(num_factors, learning_rate, isCuda):
 
   train = np.loadtxt(fname=HUNDRED_K_TRAIN, dtype=np.dtype("int"), delimiter=HUNDRED_K_DELIM)
   test = np.loadtxt(fname=HUNDRED_K_TEST, dtype=np.dtype("int"), delimiter=HUNDRED_K_DELIM)
@@ -53,17 +50,18 @@ def train_model(isCuda, experiment):
   num_movies = HUNDRED_K_MOVIES
 
   if isCuda:
-    model = MatrixFactorization(num_users, num_movies, NUM_FACTORS).cuda()
+    model = MatrixFactorization(num_users, num_movies, num_factors).cuda()
     long_type = torch.cuda.LongTensor
     float_type = torch.cuda.FloatTensor
   else:
-    model = MatrixFactorization(num_users, num_movies, NUM_FACTORS)
+    model = MatrixFactorization(num_users, num_movies, num_factors)
     long_type = torch.LongTensor
     float_type = torch.FloatTensor
 
   loss_fn = torch.nn.MSELoss()
-  optimizer = torch.optim.SGD(model.parameters(), lr=LEARNING_RATE)
+  optimizer = torch.optim.SGD(model.parameters(), lr=learning_rate)
   
+
   def evaluate_model(data):
     users = torch.Tensor(data[:, 0]).type(long_type)
     movies = torch.Tensor(data[:, 1]).type(long_type)
@@ -88,15 +86,15 @@ def train_model(isCuda, experiment):
       optimizer.step()
       optimizer.zero_grad()
 
-      if n % 1000 == 0:
-        print(n)
-        end = time.time()
-        print("Time: {}".format(end - start))
-        start = end
-        print("Prediction: {}".format(predictions[0]))
-        print("Rating: {}".format(ratings[0]))
-        print("Diff: {}".format(abs(predictions[0] - ratings[0])))
-      n += 1
+      # if n % 1000 == 0:
+      #   print(n)
+      #   end = time.time()
+      #   print("Time: {}".format(end - start))
+      #   start = end
+      #   print("Prediction: {}".format(predictions[0]))
+      #   print("Rating: {}".format(ratings[0]))
+      #   print("Diff: {}".format(abs(predictions[0] - ratings[0])))
+      # n += 1
       
     train_loss = evaluate_model(train)
     test_loss = evaluate_model(test)
@@ -107,7 +105,7 @@ def train_model(isCuda, experiment):
     print("\n============== EPOCH {} ==============\nTrain loss = {}\nTest loss = {}\n"\
       .format(i + 1, train_loss, test_loss))
     
-    np.save("results/{}".format(experiment), [train_losses, test_losses])
+    np.save("results/nf={}lr={}".format(num_factors, learning_rate), [train_losses, test_losses])
 
 
 
@@ -115,8 +113,8 @@ def train_model(isCuda, experiment):
 
 if __name__ == '__main__':
   args = sys.argv
-  if len(args) >= 3:
-    train_model((args[1] == "y"), args[2])
+  if len(args) >= 4:
+    train_model(int(args[1]), float(args[2]), (args[3] == "y"))
 
      
 
