@@ -143,8 +143,8 @@ def train_model(num_factors, learning_rate, isBiased):
     print("============== EPOCH {} ==============\nTrain loss = {}\Validation loss = {}\n"\
       .format(i + 1, train_loss, val_loss))
     
-    result_path = "../results/{}-{}-{}".format(num_factors, learning_rate, isBiased)
-    model_path = "../models/{}-{}-{}.pt".format(num_factors, learning_rate, isBiased)
+    result_path = "../results/{}_{}_{}".format(num_factors, learning_rate, isBiased)
+    model_path = "../models/{}_{}_{}.pt".format(num_factors, learning_rate, isBiased)
 
     np.save(result_path, [train_losses, val_losses])
     torch.save(model.state_dict(), model_path)
