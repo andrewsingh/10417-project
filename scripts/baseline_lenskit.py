@@ -4,16 +4,19 @@ from lenskit.algorithms.als import BiasedMF
 from lenskit.batch import predict
 from lenskit.metrics.predict import rmse
 
-train = pd.read_pickle("../data/splits/train.pkl")
-val = pd.read_pickle("../data/splits/val.pkl")
-test = pd.read_pickle("../data/splits/test.pkl")
+train = pd.read_pickle("../data/ml-20m-split/train.pkl")
+val = pd.read_pickle("../data/ml-20m-split/val.pkl")
+test = pd.read_pickle("../data/ml-20m-split/test.pkl")
 
 
-algo = BiasedMF(30)
-algo.fit(train[:600])
-preds = predict(algo, val[100:300])
-preds["prediction"].values
-rmse(preds["prediction"], preds["rating"])
-val[200:400]
+model = BiasedMF(30, iterations=100)
+print("Fitting model...")
+model.fit(train)
+print("Making predictions...")
+preds = predict(model, val)
+result = rmse(preds["prediction"], preds["rating"])
+
+print("============= RESULTS =============\nFactors: {}\nIterations: {}\nRMSE: {}"\
+    .format(30, 100, result))
 
 

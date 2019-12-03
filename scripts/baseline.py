@@ -3,20 +3,22 @@ import numpy as np
 import torch
 import pandas as pd
 import pickle
+import math
 import time
 
 
+
 EPOCHS = 500
+BATCH_SIZE = 64
 is_cuda = False
 verbose = True
 
 
 # Load and preprocess data
-train = pd.read_pickle("../data/splits/train.pkl")
-val = pd.read_pickle("../data/splits/val.pkl")
+train = pd.read_pickle("../data/ml-20m-split/train.pkl")
+val = pd.read_pickle("../data/ml-20m-split/val.pkl")
 
-train["user"] -= 1
-val["user"] -= 1
+# train = train.reset_index()
 train = train.sample(frac=1) # Shuffle the training set
 
 with open("../data/item_dict.pkl", "rb") as f:
@@ -104,31 +106,33 @@ def train_model(num_factors, learning_rate, isBiased):
     n = 0
     # time1 = time.time()
     # time2 = time1
-    for row in train.itertuples(index=False):
+    for j in range(0, math.ceil(train.shape[0] / BATCH_SIZE)):
+    #for row in train.itertuples(index=False):
       # time1 = time.time()
       # print("Time Elapsed 1: {}".format(time1 - time2))
-
-      users = torch.Tensor([row.user]).type(long_type)
-      movies = torch.Tensor([movie_dict[row.item]]).type(long_type)
-      ratings = torch.Tensor([row.rating]).type(float_type)
+      batch = train.iloc[j * BATCH_SIZE : (j + 1) * BATCH_SIZE]
+      users = torch.Tensor(batch["user"].values).type(long_type)
+      movie_indices = [movie_dict[mid] for mid in batch["item"].values]
+      movies = torch.Tensor(movie_indices).type(long_type)
+      ratings = torch.Tensor(batch["rating"].values).type(float_type)
       predictions = model(users, movies)
       loss = loss_fn(predictions, ratings)
       loss.backward()
       optimizer.step()
       model.zero_grad()
       
-      # if verbose and (n % 10000 == 0):
-      #   print(n)
-      #   print("Loss: {}".format(loss.item()))
-      #   print("User embedding: {}".format(model.user_factors(users)))
-      #   print("Movie embedding: {}".format(model.movie_factors(movies)))
-      #   if isBiased:
-      #     print("User bias: {}".format(model.user_biases(users)))
-      #     print("Movie bias: {}".format(model.movie_biases(movies)))
-      #   print("Prediction: {}".format(predictions[0]))
-      #   print("Rating: {}".format(ratings[0]))
-      #   print("Diff: {}\n".format(abs(predictions[0] - ratings[0])))
-      # n += 1
+      if verbose and (n % 1000 == 0):
+        print(n)
+        print("Loss: {}".format(loss.item()))
+        # print("User embedding: {}".format(model.user_factors(users)))
+        # print("Movie embedding: {}".format(model.movie_factors(movies)))
+        # if isBiased:
+        #   print("User bias: {}".format(model.user_biases(users)))
+        #   print("Movie bias: {}".format(model.movie_biases(movies)))
+        print("Prediction: {}".format(predictions[0]))
+        print("Rating: {}".format(ratings[0]))
+        print("Diff: {}\n".format(abs(predictions[0] - ratings[0])))
+      n += 1
 
       # time2 = time.time()
       # print("Time Elapsed 2: {}".format(time2 - time1))
@@ -144,10 +148,10 @@ def train_model(num_factors, learning_rate, isBiased):
       .format(i + 1, train_loss, val_loss))
     
     result_path = "../results/{}_{}_{}".format(num_factors, learning_rate, isBiased)
-    model_path = "../models/{}_{}_{}.pt".format(num_factors, learning_rate, isBiased)
+    #model_path = "../models/{}_{}_{}.pt".format(num_factors, learning_rate, isBiased)
 
     np.save(result_path, [train_losses, val_losses])
-    torch.save(model.state_dict(), model_path)
+    #torch.save(model.state_dict(), model_path)
 
     
 
