@@ -3,11 +3,11 @@ import numpy as np
 import torch
 import lenskit
 import pandas as pd
-
+import math
 
 # Hyperparameters
 EPOCHS = 500
-
+BATCH_SIZE = 64
 
 # Data constants
 HUNDRED_K_USERS = 943
@@ -25,9 +25,11 @@ class MatrixFactorization(torch.nn.Module):
 
   def __init__(self, num_users, num_movies, num_factors, isSparse=True):
     super().__init__()
-    self.user_factors = torch.nn.Embedding(num_users, num_factors, sparse=isSparse)
-    self.movie_factors = torch.nn.Embedding(num_movies, num_factors, sparse=isSparse)
+    self.user_factors = torch.nn.Embedding(num_users, num_factors, max_norm=1, sparse=isSparse)
+    self.movie_factors = torch.nn.Embedding(num_movies, num_factors, max_norm=1, sparse=isSparse)
 
+    self.user_factors.weight.data.uniform_(-0.25, 0.25)
+    self.movie_factors.weight.data.uniform_(-0.25, 0.25)
 
   def forward(self, users, movies):
     return (cos(self.user_factors(users), self.movie_factors(movies)) * 2) + 3
@@ -102,10 +104,12 @@ def train_model(num_factors, learning_rate_f, learning_rate_b, isBiased, isCuda,
 
   for i in range(EPOCHS):
     n = 0
-    for [user, movie, rating, _] in train:
-      users = torch.Tensor([user]).type(long_type)
-      movies = torch.Tensor([movie]).type(long_type)
-      ratings = torch.Tensor([rating]).type(float_type)
+    for j in range(0, math.ceil(train.shape[0] / BATCH_SIZE)):
+    #for [user, movie, rating, _] in train:
+      batch = train[j * BATCH_SIZE : (j + 1) * BATCH_SIZE]
+      users = torch.Tensor(batch[:, 0]).type(long_type)
+      movies = torch.Tensor(batch[:, 1]).type(long_type)
+      ratings = torch.Tensor(batch[:, 2]).type(float_type)
       predictions = model(users, movies)
       loss = loss_fn(predictions, ratings)
       loss.backward()
@@ -114,18 +118,18 @@ def train_model(num_factors, learning_rate_f, learning_rate_b, isBiased, isCuda,
         biases_optimizer.step()
       model.zero_grad()
       
-      if n % 10000 == 0:
-        print(n)
-        print("Loss: {}".format(loss.item()))
-        print("User embedding: {}".format(model.user_factors(users)))
-        print("Movie embedding: {}".format(model.movie_factors(movies)))
-        if isBiased:
-          print("User bias: {}".format(model.user_biases(users)))
-          print("Movie bias: {}".format(model.movie_biases(movies)))
-        print("Prediction: {}".format(predictions[0]))
-        print("Rating: {}".format(ratings[0]))
-        print("Diff: {}\n".format(abs(predictions[0] - ratings[0])))
-      n += 1
+      # if n % 500 == 0:
+      #   print(n)
+      #   print("Loss: {}".format(loss.item()))
+      #   # print("User embedding: {}".format(model.user_factors(users)))
+      #   # print("Movie embedding: {}".format(model.movie_factors(movies)))
+      #   # if isBiased:
+      #   #   print("User bias: {}".format(model.user_biases(users)))
+      #   #   print("Movie bias: {}".format(model.movie_biases(movies)))
+      #   print("Prediction: {}".format(predictions[0]))
+      #   print("Rating: {}".format(ratings[0]))
+      #   print("Diff: {}\n".format(abs(predictions[0] - ratings[0])))
+      # n += 1
       
     train_loss = evaluate_model(train)
     test_loss = evaluate_model(test)
@@ -139,7 +143,7 @@ def train_model(num_factors, learning_rate_f, learning_rate_b, isBiased, isCuda,
     
 
     #output_file = "results/{}".format(experiment)
-    output_file = "../results/tests/{}-{}-{}-{}-batched".format(num_factors, learning_rate_f, isBiased, experiment)
+    output_file = "../results/tests/{}-{}-{}-{}".format(num_factors, learning_rate_f, isBiased, experiment)
 
     np.save(output_file, [train_losses, test_losses])
 

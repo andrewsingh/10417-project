@@ -65,7 +65,7 @@ class ContentRecommender(nn.Module):
     self.outdim = num_factors
 
     # Item model
-    self.item_indim = 318
+    self.item_indim = 318 # don't hardcode this
     self.item_hiddim = item_hiddim # 250
     self.item_model = nn.Sequential(
       nn.Linear(self.item_indim, self.item_hiddim),
@@ -103,8 +103,7 @@ class HybridRecommender(nn.Module):
     self.user_biases = nn.Embedding(num_users, 1, sparse=True)
     self.item_biases = nn.Embedding(num_items, 1, sparse=True)
 
-    self.interp_w = nn.Parameter(torch.Tensor([0.02]))
-    self.interp_b = nn.Parameter(torch.Tensor([0.1]))
+    #self.interp = nn.Embedding(num_items, 1, sparse=True)
 
   def forward(self, user_indices, item_ids):
     item_indices = torch.Tensor([item_dict[item_id] for item_id in item_ids])
