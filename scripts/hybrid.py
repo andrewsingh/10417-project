@@ -5,13 +5,19 @@ from torch import nn
 import pandas as pd
 import pickle
 import math
+import os
 
 
-EPOCHS = 500
+EPOCHS = 100
 MAX_BATCH_SIZE = 32
-ITEM_HIDDIM = 250
+ITEM_HIDDIM = 150
 is_cuda = True
 verbose = True
+hybrid = False
+if hybrid:
+  model_type = "hybrid2"
+else:
+  model_type = "content2"
 
 
 if is_cuda:
@@ -28,13 +34,20 @@ print("Loading training and validation data...")
 # train = pd.read_pickle("../data/ml-1m-split/train.pkl")
 # train = train.sample(frac=1) # Shuffle the training set
 
+# if hybrid:
+#   train_batch_eval_path = "../data/ml-1m-split/train_batched_eval_h2_1m.npy"
+#   val_batch_path = "../data/ml-1m-split/val_batched_h2_1m.npy"
+# else:
+train_batch_eval_path = "../data/ml-1m-split/train_batched_eval_h2_1m.npy"
+val_batch_path = "../data/ml-1m-split/val_batched_h2_1m.npy"
+
 # with open("../data/ml-20m-split/train_batched.pkl", "rb") as f:
 #   train_batches = pickle.load(f)
 train_batches = np.load("../data/ml-1m-split/train_batched_1m.npy", allow_pickle=True)
-np.random.shuffle(train_batches) # Shuffle the batches
+np.random.shuffle(train_batches) # Shuffle the training batches
 
-train_batches_eval = np.load("../data/ml-1m-split/train_batched_eval_1m.npy", allow_pickle=True)
-val_batches = np.load("../data/ml-1m-split/val_batched_1m.npy", allow_pickle=True)
+train_batches_eval = np.load(train_batch_eval_path, allow_pickle=True)
+val_batches = np.load(val_batch_path, allow_pickle=True)
 
 NUM_TRAIN_BATCHES = len(train_batches)
 NUM_VAL_BATCHES = len(val_batches)
@@ -57,8 +70,8 @@ GLOBAL_AVERAGE = 3.581477826039139
 class MatrixFactorization(nn.Module):
   def __init__(self, num_users, num_items, num_factors):
     super().__init__()
-    self.user_factors = nn.Embedding(num_users, num_factors, sparse=True)
-    self.item_factors = nn.Embedding(num_items, num_factors, sparse=True)
+    self.user_factors = nn.Embedding(num_users, num_factors, sparse=False)
+    self.item_factors = nn.Embedding(num_items, num_factors, sparse=False)
     
   def forward(self, users, items):
     return torch.diagonal(torch.mm(self.user_factors(users), torch.transpose(self.item_factors(items), 0, 1)))
@@ -71,9 +84,11 @@ class ContentRecommender(nn.Module):
     self.outdim = num_factors
 
     # Item model
-    self.item_hiddim = item_hiddim # 250
+    self.item_hiddim = item_hiddim
     self.item_model = nn.Sequential(
       nn.Linear(ITEM_INPUT_DIM, self.item_hiddim),
+      nn.ReLU(),
+      nn.Linear(self.item_hiddim, self.item_hiddim),
       nn.ReLU(),
       nn.Linear(self.item_hiddim, self.outdim)
     )
@@ -112,15 +127,15 @@ class ContentRecommender(nn.Module):
 
 
 
-class HybridRecommender(nn.Module):
+class ContentOnlyRecommender(nn.Module):
   def __init__(self, num_users, num_items, num_factors, item_hiddim, user_hiddim):
     super().__init__()
 
     #self.mf_model = MatrixFactorization(num_users, num_items, num_factors)
     self.content_model = ContentRecommender(num_factors, item_hiddim, user_hiddim)
 
-    self.user_biases = nn.Embedding(num_users, 1, sparse=True)
-    self.item_biases = nn.Embedding(num_items, 1, sparse=True)
+    self.user_biases = nn.Embedding(num_users, 1, sparse=False)
+    self.item_biases = nn.Embedding(num_items, 1, sparse=False)
 
     self.user_biases.weight.data.uniform_(-0.25, 0.25)
     self.item_biases.weight.data.uniform_(-0.25, 0.25)
@@ -132,15 +147,68 @@ class HybridRecommender(nn.Module):
 
 
 
+
+class HybridRecommender(nn.Module):
+  def __init__(self, num_users, num_items, num_factors, item_hiddim, user_hiddim, content_path=None, biased_mf_path = None):
+    super().__init__()
+
+    self.mf_model = MatrixFactorization(num_users, num_items, num_factors)
+    self.user_biases = nn.Embedding(num_users, 1, sparse=False)
+    self.item_biases = nn.Embedding(num_items, 1, sparse=False)
+    if biased_mf_path != None:
+      with open(biased_mf_path, "rb") as f:
+        biased_mf_model = pickle.load(f)
+      self.mf_model.user_factors.weight = torch.nn.Parameter(torch.Tensor(biased_mf_model.user_features_).type(float_type))
+      item_features = np.random.uniform(-0.25, 0.25, (NUM_ITEMS, num_factors))
+      for (idx, item_feat) in zip(biased_mf_model.item_index_, biased_mf_model.item_features_):
+        item_features[idx] = item_feat
+      self.mf_model.item_factors.weight = torch.nn.Parameter(torch.Tensor(item_features).type(float_type))
+
+      self.user_biases.weight = torch.nn.Parameter(torch.Tensor(biased_mf_model.user_bias_).type(float_type).view(-1, 1))
+      item_biases = np.random.uniform(-0.25, 0.25, NUM_ITEMS)
+      for (idx, item_bias) in zip(biased_mf_model.item_index_, biased_mf_model.item_bias_):
+        item_biases[idx] = item_bias
+      self.item_biases.weight = torch.nn.Parameter(torch.Tensor(item_biases).type(float_type).view(-1, 1))
+    else:
+      self.user_biases.weight.data.uniform_(-0.25, 0.25)
+      self.item_biases.weight.data.uniform_(-0.25, 0.25)
+
+    if content_path != None:
+      content_only_model = ContentOnlyRecommender(num_users, num_items, num_factors, item_hiddim, user_hiddim)
+      content_only_model.load_state_dict(torch.load(content_path))
+      self.content_model = content_only_model.content_model
+    else:
+      self.content_model = ContentRecommender(num_factors, item_hiddim, user_hiddim)
+
+    self.interp = nn.Parameter(torch.Tensor([0.5])).type(float_type)
+
+    
+  def forward(self, users, items, user_item_inputs, item_inputs):
+    return GLOBAL_AVERAGE + self.user_biases(users).squeeze(dim=1) + self.item_biases(items).squeeze(dim=1) \
+      + (self.interp * self.mf_model(users, items)) + ((1 - self.interp) * self.content_model(user_item_inputs, item_inputs, users.shape[0]))
+
+
+
 def train_model(num_factors, learning_rate):
-  print("Training model...")
+  print("Training {} model...".format(model_type))
+  
   if is_cuda:
-    model = HybridRecommender(NUM_USERS, NUM_ITEMS, num_factors, ITEM_HIDDIM, num_factors).cuda()   
+    if hybrid:
+      content_path = "../models/content_30_0.01/epoch_23.pt"
+      biased_mf_path = "../models/baseline_model.pkl"
+      model = HybridRecommender(NUM_USERS, NUM_ITEMS, num_factors, ITEM_HIDDIM, num_factors, \
+        content_path=content_path, biased_mf_path=biased_mf_path).cuda()
+    else:
+      model = ContentOnlyRecommender(NUM_USERS, NUM_ITEMS, num_factors, ITEM_HIDDIM, num_factors).cuda()   
   else:
-    model = HybridRecommender(NUM_USERS, NUM_ITEMS, num_factors, ITEM_HIDDIM, num_factors)
+    if hybrid:
+      model = HybridRecommender(NUM_USERS, NUM_ITEMS, num_factors, ITEM_HIDDIM, num_factors, \
+        content_path=content_path, biased_mf_path=biased_mf_path)
+    else:
+      model = ContentOnlyRecommender(NUM_USERS, NUM_ITEMS, num_factors, ITEM_HIDDIM, num_factors)
     
   loss_fn = nn.MSELoss()
-  optimizer = torch.optim.SGD(model.parameters(), lr=learning_rate)
+  optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
 
 
   def evaluate_model(batches):
@@ -172,8 +240,9 @@ def train_model(num_factors, learning_rate):
   train_losses = np.zeros(EPOCHS)
   val_losses = np.zeros(EPOCHS)
 
-  j = 0
+  
   for i in range(EPOCHS):
+    j = 0
     for batch in train_batches[:1]:
       j += 1
       users_numpy = batch[:, 0].astype(int)
@@ -209,8 +278,12 @@ def train_model(num_factors, learning_rate):
     print("============== EPOCH {} ==============\nTrain loss = {}\nValidation loss = {}\n"\
       .format(i + 1, train_loss, val_loss))
     
-    result_path = "../results/content_{}_{}".format(num_factors, learning_rate)
-    model_path = "../models/content_{}_{}/epoch_{}.pt".format(num_factors, learning_rate, i + 1)
+    result_path = "../results/{}_{}_{}".format(model_type, num_factors, learning_rate)
+    model_dir = "../models/{}_{}_{}".format(model_type, num_factors, learning_rate)
+    model_path = model_dir + "/epoch_{}.pt".format(i + 1)
+
+    if not os.path.exists(model_dir):
+      os.mkdir(model_dir)
 
     np.save(result_path, [train_losses, val_losses])
     torch.save(model.state_dict(), model_path)
