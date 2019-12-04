@@ -4,58 +4,65 @@ import torch
 from torch import nn
 import pandas as pd
 import pickle
-import time
 
 
 EPOCHS = 500
-EMBEDDING_DIM = 50
+MAX_BATCH_SIZE = 32
+ITEM_HIDDIM = 250
 is_cuda = False
 verbose = True
 
 
-# Load and preprocess data
-train = pd.read_pickle("../data/ml-20m-split/train.pkl")
-val = pd.read_pickle("../data/ml-20m-split/val.pkl")
+if is_cuda:
+    long_type = torch.cuda.LongTensor
+    float_type = torch.cuda.FloatTensor
+    torch.backends.cudnn.benchmark=True
+else:
+  long_type = torch.LongTensor
+  float_type = torch.FloatTensor
 
+
+# Load and preprocess data
+print("Loading training and validation data...")
+train = pd.read_pickle("../data/ml-20m-split/train.pkl")
 train = train.sample(frac=1) # Shuffle the training set
 
+# with open("../data/ml-20m-split/train_batched.pkl", "rb") as f:
+#   train_batches = pickle.load(f)
+train_batches = np.load("../data/ml-20m-split/train_batched_numpy.npy", allow_pickle=True)
+np.random.shuffle(train_batches) # Shuffle the batches
+
+val = pd.read_pickle("../data/ml-20m-split/val.pkl")
+
+NUM_BATCHES = len(train_batches)
+
+print("Loading item inputs...")
+all_item_inputs = np.load("../data/item_inputs.npy")
+ITEM_INPUT_DIM = len(all_item_inputs[0])
 
 # Data constants
-NUM_USERS = len(train.groupby("user").size())
-NUM_ITEMS = len(item_dict)
-
+NUM_USERS = train.shape[0]
+NUM_ITEMS = len(all_item_inputs)
 GLOBAL_AVERAGE = train["rating"].mean()
 
-all_item_inputs = np.load("../data/item_inputs")
-all_user_items = np.load("../data/user_items")
 
-print("Loading GloVe embeddings...")
-with open("../data/glove.twitter.27B/glove.twitter.27B.{}d.txt".format(EMBEDDING_DIM)) as glove_file:
-    glove_embeddings = defaultdict(lambda: np.random.rand(EMBEDDING_DIM))
-    i = 0
-    for line in glove_file.readlines():
-        values = line.split(" ")
-        word = values[0]
-        embedding = np.asarray(values[1:], dtype="float32")
-        assert(len(embedding) == EMBEDDING_DIM)
-        glove_embeddings[word] = embedding
-        
-        if i % 100000 == 0:
-            print(i)
-        i += 1
+print("Loading user items...")
+all_user_items = np.load("../data/user_items_numpy.npy", allow_pickle=True)
+
+
+# with open("../data/user_items.pkl", "rb") as f:
+#   all_user_items = pickle.load(f)
 
 
 
 class MatrixFactorization(nn.Module):
-
   def __init__(self, num_users, num_items, num_factors):
     super().__init__()
     self.user_factors = nn.Embedding(num_users, num_factors, sparse=True)
     self.item_factors = nn.Embedding(num_items, num_factors, sparse=True)
     
-  def forward(self, user_indices, item_indices):
-    # fix this
-    return torch.mm(self.user_factors(user_indices), torch.transpose(self.item_factors(item_indices), 0, 1)).sum(-1)
+  def forward(self, users, items):
+    return torch.diagonal(torch.mm(self.user_factors(users), torch.transpose(self.item_factors(items), 0, 1)))
     
 
 
@@ -65,31 +72,45 @@ class ContentRecommender(nn.Module):
     self.outdim = num_factors
 
     # Item model
-    self.item_indim = 318 # don't hardcode this
     self.item_hiddim = item_hiddim # 250
     self.item_model = nn.Sequential(
-      nn.Linear(self.item_indim, self.item_hiddim),
+      nn.Linear(ITEM_INPUT_DIM, self.item_hiddim),
       nn.ReLU(),
       nn.Linear(self.item_hiddim, self.outdim)
     )
 
     # User model
-    self.user_hiddim = user_hiddim # 30
-    self.user_lstm = nn.LSTM(self.outdim, self.user_hiddim)
+    self.user_hiddim = user_hiddim # num_factors
+    self.user_lstm = nn.LSTM(self.outdim, self.user_hiddim, batch_first=True)
 
 
-  def forward(self, user_indices, item_indices):
-    user_item_indices = all_user_items[user_indices].reshape(-1)
-    user_item_inputs = all_item_inputs[user_item_indices]
-    user_item_inputs_indices = np.arange(user_item_inputs.shape[0]).reshape(user_indices.shape[0], -1).T.reshape(-1)
-    user_inputs = self.item_model(user_item_inputs)[user_item_inputs_indices].view(-1, batch_size, self.outdim)
-    item_inputs = torch.Tensor(all_item_inputs[item_indices])
+  def forward(self, users, items):
+    batch_size = users.shape[0]
+    #print(np.asarray(users).astype(int))
+    print("seq_len: {}".format(len(all_user_items[users[0]])))
+    #print("{}, {}".format(users.shape[0], len(all_user_items[users[0]])))
+    # print(len(all_user_items[users[0]]))
+    assert(users.shape[0] == items.shape[0])
+    user_item_indices = np.concatenate(all_user_items[np.asarray(users)])
+    user_item_inputs = torch.Tensor(all_item_inputs[user_item_indices]).type(float_type)
+    #print("{}, {}".format(len(user_item_indices), user_item_inputs.shape))
+    #user_item_inputs_indices = np.arange(user_item_inputs.shape[0]).reshape(users.shape[0], -1).T.reshape(-1)
+    #print(self.item_model(user_item_inputs))
+    #print(self.item_model(user_item_inputs).shape)
+    user_inputs = self.item_model(user_item_inputs).view(batch_size, -1, self.outdim)
+    #user_inputs = self.item_model(user_item_inputs)[user_item_inputs_indices].view(-1, BATCH_SIZE, self.outdim)
+    item_inputs = torch.Tensor(all_item_inputs[items])
     
     item_embeddings = self.item_model(item_inputs)
     (lstm_outputs, _) = self.user_lstm(user_inputs)
-    user_embeddings = lstm_outputs[-1]
+    
+    #print("Outputs shape: {}".format(lstm_outputs.permute(1, 0, 2).shape))
+    user_embeddings = lstm_outputs.permute(1, 0, 2)[-1]
+    # if item_embeddings.shape != user_embeddings.shape:
+    #   print("User embedding: {}".format(user_embeddings.shape))
+    #   print("Item embedding: {}".format(item_embeddings.shape))
     assert(item_embeddings.shape == user_embeddings.shape)
-    return torch.mm(user_embeddings, torch.transpose(item_embeddings, 0, 1)).sum(-1)
+    return torch.diagonal(torch.mm(user_embeddings, torch.transpose(item_embeddings, 0, 1)))
 
 
 
@@ -97,43 +118,33 @@ class HybridRecommender(nn.Module):
   def __init__(self, num_users, num_items, num_factors, item_hiddim, user_hiddim):
     super().__init__()
 
-    self.mf_model = MatrixFactorization(num_users, num_items, num_factors)
+    #self.mf_model = MatrixFactorization(num_users, num_items, num_factors)
     self.content_model = ContentRecommender(num_factors, item_hiddim, user_hiddim)
 
     self.user_biases = nn.Embedding(num_users, 1, sparse=True)
     self.item_biases = nn.Embedding(num_items, 1, sparse=True)
 
-    #self.interp = nn.Embedding(num_items, 1, sparse=True)
 
-  def forward(self, user_indices, item_ids):
-    item_indices = torch.Tensor([item_dict[item_id] for item_id in item_ids])
-
-
-    return GLOBAL_AVERAGE + self.user_biases(user_indices).squeeze(dim=1) + self.item_biases(item_indices).squeeze(dim=1) \
-      + self.mf_model(user_indices, item_indices) + self.content_model(user_indices, item_indices)
+  def forward(self, users, items):
+    return GLOBAL_AVERAGE + self.user_biases(users).squeeze(dim=1) + self.item_biases(items).squeeze(dim=1) \
+      + self.content_model(users, items)
 
 
 
 def train_model(num_factors, learning_rate):
-
+  print("Training model...")
   if is_cuda:
-    model = BiasedMF(NUM_USERS, NUM_ITEMS, num_factors).cuda()   
-    long_type = torch.cuda.LongTensor
-    float_type = torch.cuda.FloatTensor
-    torch.backends.cudnn.benchmark=True
+    model = HybridRecommender(NUM_USERS, NUM_ITEMS, num_factors, ITEM_HIDDIM, num_factors).cuda()   
   else:
-    model = BiasedMF(NUM_USERS, NUM_ITEMS, num_factors)
-    long_type = torch.LongTensor
-    float_type = torch.FloatTensor
-
+    model = HybridRecommender(NUM_USERS, NUM_ITEMS, num_factors, ITEM_HIDDIM, num_factors)
+    
   loss_fn = nn.MSELoss()
   optimizer = torch.optim.SGD(model.parameters(), lr=learning_rate)
 
 
   def evaluate_model(df):
-    item_indices = [item_dict[mid] for mid in df["item"].values]
     users = torch.Tensor(df["user"].values).type(long_type)
-    items = torch.Tensor(item_indices).type(long_type)
+    items = torch.Tensor(df["item"].values).type(long_type)
     ratings = torch.Tensor(df["rating"].values).type(float_type)
     predictions = model(users, items)
     return torch.sqrt(loss_fn(predictions, ratings))
@@ -141,18 +152,21 @@ def train_model(num_factors, learning_rate):
   train_losses = np.zeros(EPOCHS)
   val_losses = np.zeros(EPOCHS)
 
-
+  j = 0
   for i in range(EPOCHS):
-    for row in train.itertuples(index=False):
-      users = torch.Tensor([row.user]).type(long_type)
-      items = torch.Tensor([item_dict[row.item]]).type(long_type)
-      ratings = torch.Tensor([row.rating]).type(float_type)
+    for batch in train_batches:
+      j += 1
+      if j % 1000 == 0:
+        print("Batch {} of {}".format(j, NUM_BATCHES))
+      users = torch.Tensor(batch[:, 0]).type(long_type)
+      items = torch.Tensor(batch[:, 1]).type(long_type)
+      ratings = torch.Tensor(batch[:, 2]).type(float_type)
       predictions = model(users, items)
       loss = loss_fn(predictions, ratings)
       loss.backward()
       optimizer.step()
       model.zero_grad()
-      
+    
     train_loss = evaluate_model(train)
     val_loss = evaluate_model(val)
 
@@ -163,16 +177,13 @@ def train_model(num_factors, learning_rate):
     print("============== EPOCH {} ==============\nTrain loss = {}\Validation loss = {}\n"\
       .format(i + 1, train_loss, val_loss))
     
-    result_path = "../results/augmented_{}_{}_{}".format(num_factors, learning_rate)
-    model_path = "../models/augmented_{}_{}_{}.pt".format(num_factors, learning_rate)
+    result_path = "../results/content_{}_{}".format(num_factors, learning_rate)
+    model_path = "../models/content_{}_{}.pt".format(num_factors, learning_rate)
 
     np.save(result_path, [train_losses, val_losses])
     torch.save(model.state_dict(), model_path)
 
     
-
-
-
 
 
 if __name__ == '__main__':
