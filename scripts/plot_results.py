@@ -6,34 +6,37 @@ import sys
 
 
 def plot_results(plot_data_name, title):
-  [train_losses, test_losses, train_accs, test_accs] = np.load("plot_data/{}.npy".format(plot_data_name))
-  epoch_range = range(1, 45 + 1)
-  train_losses = train_losses[:45]
-  test_losses = test_losses[:45]
-  train_accs = train_accs[:45]
-  test_accs = test_accs[:45]
-  max_test_acc_epoch = np.argmax(test_accs)
-  max_test_acc = test_accs[max_test_acc_epoch]
-  max_test_acc_point = (max_test_acc_epoch + 1, round(max_test_acc, 3))
-  max_test_acc_text_point = (max_test_acc_point[0] - 5, max_test_acc_point[1] + 0.003)
+  num_epochs = 40
+  [train_losses, test_losses] = np.load("plot_data/{}.npy".format(plot_data_name))
+  train_losses = np.sqrt(train_losses)
+  test_losses = np.sqrt(test_losses)
+  epoch_range = range(1, num_epochs + 1)
+  train_losses = train_losses[:num_epochs]
+  test_losses = test_losses[:num_epochs]
+  train_accs = train_accs[:num_epochs]
+  test_accs = test_accs[:num_epochs]
+  # max_test_acc_epoch = np.argmax(test_accs)
+  # max_test_acc = test_accs[max_test_acc_epoch]
+  # max_test_acc_point = (max_test_acc_epoch + 1, round(max_test_acc, 3))
+  # max_test_acc_text_point = (max_test_acc_point[0] - 5, max_test_acc_point[1] + 0.003)
 
   plt.plot(epoch_range, train_losses, label="Train")
-  plt.plot(epoch_range, test_losses, label="Test")
+  plt.plot(epoch_range, test_losses, label="Validation")
   plt.xlabel("Epoch")
-  plt.ylabel("Loss")
-  plt.title("{} Loss".format(title))
+  plt.ylabel("Loss (RMSE)")
+  plt.title(title)
   plt.legend()
   plt.show()
 
-  plt.plot(epoch_range, train_accs, label="Train")
-  plt.plot(epoch_range, test_accs, label="Test")
-  plt.plot((max_test_acc_epoch + 1), max_test_acc, "g*")
-  plt.annotate(str(max_test_acc_point), xy=max_test_acc_point, xytext=max_test_acc_text_point)
-  plt.xlabel("Epoch")
-  plt.ylabel("Accuracy")
-  plt.title("{} Accuracy".format(title))
-  plt.legend()
-  plt.show()
+  # plt.plot(epoch_range, train_accs, label="Train")
+  # plt.plot(epoch_range, test_accs, label="Test")
+  # plt.plot((max_test_acc_epoch + 1), max_test_acc, "g*")
+  # plt.annotate(str(max_test_acc_point), xy=max_test_acc_point, xytext=max_test_acc_text_point)
+  # plt.xlabel("Epoch")
+  # plt.ylabel("Accuracy")
+  # plt.title("{} Accuracy".format(title))
+  # plt.legend()
+  # plt.show()
 
 
 
