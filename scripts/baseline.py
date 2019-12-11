@@ -29,8 +29,6 @@ NUM_ITEMS = 3706
 
 GLOBAL_AVERAGE = train["rating"].mean()
 
-
-
 cos = torch.nn.CosineSimilarity()
 
 

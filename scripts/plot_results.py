@@ -6,15 +6,14 @@ import sys
 
 
 def plot_results(plot_data_name, title):
-  num_epochs = 40
-  [train_losses, test_losses] = np.load("plot_data/{}.npy".format(plot_data_name))
-  train_losses = np.sqrt(train_losses)
-  test_losses = np.sqrt(test_losses)
+  
+  [train_losses, test_losses] = np.load("../results/{}.npy".format(plot_data_name))
+  num_epochs = int(np.where(train_losses == 0)[0][0])
   epoch_range = range(1, num_epochs + 1)
   train_losses = train_losses[:num_epochs]
   test_losses = test_losses[:num_epochs]
-  train_accs = train_accs[:num_epochs]
-  test_accs = test_accs[:num_epochs]
+  # train_accs = train_accs[:num_epochs]
+  # test_accs = test_accs[:num_epochs]
   # max_test_acc_epoch = np.argmax(test_accs)
   # max_test_acc = test_accs[max_test_acc_epoch]
   # max_test_acc_point = (max_test_acc_epoch + 1, round(max_test_acc, 3))

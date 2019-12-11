@@ -31,18 +31,10 @@ else:
 
 # Load and preprocess data
 print("Loading training and validation data...")
-# train = pd.read_pickle("../data/ml-1m-split/train.pkl")
-# train = train.sample(frac=1) # Shuffle the training set
 
-# if hybrid:
-#   train_batch_eval_path = "../data/ml-1m-split/train_batched_eval_h2_1m.npy"
-#   val_batch_path = "../data/ml-1m-split/val_batched_h2_1m.npy"
-# else:
 train_batch_eval_path = "../data/ml-1m-split/train_batched_eval_h2_1m.npy"
 val_batch_path = "../data/ml-1m-split/val_batched_h2_1m.npy"
 
-# with open("../data/ml-20m-split/train_batched.pkl", "rb") as f:
-#   train_batches = pickle.load(f)
 train_batches = np.load("../data/ml-1m-split/train_batched_1m.npy", allow_pickle=True)
 np.random.shuffle(train_batches) # Shuffle the training batches
 
@@ -99,29 +91,10 @@ class ContentRecommender(nn.Module):
 
 
   def forward(self, user_item_inputs, item_inputs, batch_size):
-    
-    #print(np.asarray(users).astype(int))
-    #print("seq_len: {}".format(len(all_user_items[users[0]])))
-    #print("{}, {}".format(users.shape[0], len(all_user_items[users[0]])))
-    # print(len(all_user_items[users[0]]))
-    #assert(users.shape[0] == items.shape[0])
-    
-    #print("{}, {}".format(len(user_item_indices), user_item_inputs.shape))
-    #user_item_inputs_indices = np.arange(user_item_inputs.shape[0]).reshape(users.shape[0], -1).T.reshape(-1)
-    #print(self.item_model(user_item_inputs))
-    #print(batch_size)
-    #print(self.item_model(user_item_inputs).shape)
     user_inputs = self.item_model(user_item_inputs).view(batch_size, -1, self.outdim)
-    #user_inputs = self.item_model(user_item_inputs)[user_item_inputs_indices].view(-1, BATCH_SIZE, self.outdim)
-    
     item_embeddings = self.item_model(item_inputs)
     (lstm_outputs, _) = self.user_lstm(user_inputs)
-    
-    #print("Outputs shape: {}".format(lstm_outputs.permute(1, 0, 2).shape))
     user_embeddings = lstm_outputs.permute(1, 0, 2)[-1]
-    # if item_embeddings.shape != user_embeddings.shape:
-    #   print("User embedding: {}".format(user_embeddings.shape))
-    #   print("Item embedding: {}".format(item_embeddings.shape))
     assert(item_embeddings.shape == user_embeddings.shape)
     return torch.diagonal(torch.mm(user_embeddings, torch.transpose(item_embeddings, 0, 1)))
 
@@ -252,9 +225,7 @@ def train_model(num_factors, learning_rate):
       ratings = torch.Tensor(batch[:, 2]).type(float_type)
       
       user_item_indices = np.concatenate(all_user_items[users_numpy])
-      #print(user_item_indices.shape)
       user_item_inputs = torch.Tensor(all_item_inputs[user_item_indices]).type(float_type)
-      #print(user_item_inputs.shape)
       item_inputs = torch.Tensor(all_item_inputs[items_numpy]).type(float_type)
 
       predictions = model(users, items, user_item_inputs, item_inputs)
